@@ -46,9 +46,9 @@ def start_instances(cluster, id_file, genkeys=False, region=region, zone=zone, c
         sys.exit(1)
     conn = ec2.connect_to_region(region, aws_access_key_id=aaki, aws_secret_access_key=asak);
 
-    (masters, slaves) = get_existing_cluster(conn, region, cluster);
+    (mains, subordinates) = get_existing_cluster(conn, region, cluster);
 
-    allnodes = masters + slaves
+    allnodes = mains + subordinates
     for node in allnodes:
         if node.state not in ['running', 'stopping']:
             node.start();
@@ -60,42 +60,42 @@ def start_instances(cluster, id_file, genkeys=False, region=region, zone=zone, c
         cluster_state='ssh-ready'
     )
 
-    master = get_dns_name(masters[0], opts.private_ips);
+    main = get_dns_name(mains[0], opts.private_ips);
 
-    print("configuring master %s" % master);
+    print("configuring main %s" % main);
 
-    slave_names = [get_dns_name(i, opts.private_ips) for i in slaves];
-    slaves_string = reduce(lambda x,y : x + "\n" + y, slave_names);
+    subordinate_names = [get_dns_name(i, opts.private_ips) for i in subordinates];
+    subordinates_string = reduce(lambda x,y : x + "\n" + y, subordinate_names);
 
-    hscommand="echo -e '%s' > /opt/spark/conf/slaves" % slaves_string
-    ssh(master, opts, hscommand.encode('ascii','ignore'))
+    hscommand="echo -e '%s' > /opt/spark/conf/subordinates" % subordinates_string
+    ssh(main, opts, hscommand.encode('ascii','ignore'))
 
-    sscommand="echo -e '%s' > /usr/local/hadoop/etc/hadoop/slaves" % slaves_string
-    ssh(master, opts, sscommand.encode('ascii','ignore'))
+    sscommand="echo -e '%s' > /usr/local/hadoop/etc/hadoop/subordinates" % subordinates_string
+    ssh(main, opts, sscommand.encode('ascii','ignore'))
 
-    core_conf = core_site % master
+    core_conf = core_site % main
     hccommand="echo '%s' >  /usr/local/hadoop/etc/hadoop/core-site.xml" % core_conf
-    ssh(master, opts, hccommand.encode('ascii','ignore'))
+    ssh(main, opts, hccommand.encode('ascii','ignore'))
 
-    ssh(master, opts, """rm -f ~/.ssh/known_hosts""")
-    for slave in slave_names:
-        print("configuring slave %s" % slave)
-        ssh(slave, opts, """rm -f ~/.ssh/known_hosts""")
-        ssh(slave, opts, hccommand.encode('ascii','ignore'))
-        ssh(slave, opts, sscommand.encode('ascii','ignore'))
+    ssh(main, opts, """rm -f ~/.ssh/known_hosts""")
+    for subordinate in subordinate_names:
+        print("configuring subordinate %s" % subordinate)
+        ssh(subordinate, opts, """rm -f ~/.ssh/known_hosts""")
+        ssh(subordinate, opts, hccommand.encode('ascii','ignore'))
+        ssh(subordinate, opts, sscommand.encode('ascii','ignore'))
 
     if (genkeys):
-        print("Generating cluster's SSH key on master...")
-        ssh(master, opts, """rm -f ~/.ssh/id_rsa""")
+        print("Generating cluster's SSH key on main...")
+        ssh(main, opts, """rm -f ~/.ssh/id_rsa""")
         key_setup = """
             (ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa &&
              cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys)
         """
-        ssh(master, opts, key_setup)
-        dot_ssh_tar = ssh_read(master, opts, ['tar', 'c', '.ssh'])
-        print("Transferring cluster's SSH key to slaves...")
-        for slave in slave_names:
-            ssh_write(slave, opts, ['tar', 'x'], dot_ssh_tar)
+        ssh(main, opts, key_setup)
+        dot_ssh_tar = ssh_read(main, opts, ['tar', 'c', '.ssh'])
+        print("Transferring cluster's SSH key to subordinates...")
+        for subordinate in subordinate_names:
+            ssh_write(subordinate, opts, ['tar', 'x'], dot_ssh_tar)
 
 
 
@@ -161,7 +161,7 @@ def copy_files(fromfile, opts, node, tofile):
 def get_existing_cluster(conn, region, cluster_name, die_on_error=True):
     """
     Get the EC2 instances in an existing cluster if available.
-    Returns a tuple of lists of EC2 instance objects for the masters and slaves.
+    Returns a tuple of lists of EC2 instance objects for the mains and subordinates.
     """
     print("Searching for existing cluster {c} in region {r}...".format(
           c=cluster_name, r=region))
@@ -178,22 +178,22 @@ def get_existing_cluster(conn, region, cluster_name, die_on_error=True):
         instances = itertools.chain.from_iterable(r.instances for r in reservations)
         return [i for i in instances if i.state not in ["shutting-down", "terminated"]]
 
-    master_instances = get_instances([cluster_name + "-master"])
-    slave_instances = get_instances([cluster_name + "-slaves"])
+    main_instances = get_instances([cluster_name + "-main"])
+    subordinate_instances = get_instances([cluster_name + "-subordinates"])
 
-    if any((master_instances, slave_instances)):
-        print("Found {m} master{plural_m}, {s} slave{plural_s}.".format(
-              m=len(master_instances),
-              plural_m=('' if len(master_instances) == 1 else 's'),
-              s=len(slave_instances),
-              plural_s=('' if len(slave_instances) == 1 else 's')))
+    if any((main_instances, subordinate_instances)):
+        print("Found {m} main{plural_m}, {s} subordinate{plural_s}.".format(
+              m=len(main_instances),
+              plural_m=('' if len(main_instances) == 1 else 's'),
+              s=len(subordinate_instances),
+              plural_s=('' if len(subordinate_instances) == 1 else 's')))
 
-    if not master_instances and die_on_error:
-        print("ERROR: Could not find a master for cluster {c} in region {r}.".format(
+    if not main_instances and die_on_error:
+        print("ERROR: Could not find a main for cluster {c} in region {r}.".format(
               c=cluster_name, r=region))
         sys.exit(1)
 
-    return (master_instances, slave_instances)
+    return (main_instances, subordinate_instances)
 
 
 def stringify_command(parts):

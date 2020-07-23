@@ -35,9 +35,9 @@ def stop_instances(cluster, region=region, zone=zone):
         sys.exit(1)
     conn = ec2.connect_to_region(region, aws_access_key_id=aaki, aws_secret_access_key=asak);
 
-    (masters, slaves) = get_existing_cluster(conn, region, cluster);
+    (mains, subordinates) = get_existing_cluster(conn, region, cluster);
 
-    allnodes = masters + slaves
+    allnodes = mains + subordinates
     for node in allnodes:
         if node.state in ['running']:
             node.stop();
@@ -47,7 +47,7 @@ def stop_instances(cluster, region=region, zone=zone):
 def get_existing_cluster(conn, region, cluster_name, die_on_error=True):
     """
     Get the EC2 instances in an existing cluster if available.
-    Returns a tuple of lists of EC2 instance objects for the masters and slaves.
+    Returns a tuple of lists of EC2 instance objects for the mains and subordinates.
     """
     print("Searching for existing cluster {c} in region {r}...".format(
           c=cluster_name, r=region))
@@ -64,22 +64,22 @@ def get_existing_cluster(conn, region, cluster_name, die_on_error=True):
         instances = itertools.chain.from_iterable(r.instances for r in reservations)
         return [i for i in instances if i.state not in ["shutting-down", "terminated"]]
 
-    master_instances = get_instances([cluster_name + "-master"])
-    slave_instances = get_instances([cluster_name + "-slaves"])
+    main_instances = get_instances([cluster_name + "-main"])
+    subordinate_instances = get_instances([cluster_name + "-subordinates"])
 
-    if any((master_instances, slave_instances)):
-        print("Found {m} master{plural_m}, {s} slave{plural_s}.".format(
-              m=len(master_instances),
-              plural_m=('' if len(master_instances) == 1 else 's'),
-              s=len(slave_instances),
-              plural_s=('' if len(slave_instances) == 1 else 's')))
+    if any((main_instances, subordinate_instances)):
+        print("Found {m} main{plural_m}, {s} subordinate{plural_s}.".format(
+              m=len(main_instances),
+              plural_m=('' if len(main_instances) == 1 else 's'),
+              s=len(subordinate_instances),
+              plural_s=('' if len(subordinate_instances) == 1 else 's')))
 
-    if not master_instances and die_on_error:
-        print("ERROR: Could not find a master for cluster {c} in region {r}.".format(
+    if not main_instances and die_on_error:
+        print("ERROR: Could not find a main for cluster {c} in region {r}.".format(
               c=cluster_name, r=region))
         sys.exit(1)
 
-    return (master_instances, slave_instances)
+    return (main_instances, subordinate_instances)
 
 
 
